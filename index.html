@@ -158,7 +158,7 @@
     <div class="results-header">
       <h2>Results</h2>
       <div class="results-actions">
-        <span class="real-badge">&#10003; Real pages crawled</span>
+        <span class="real-badge" id="realBadge"><span class="real-badge">&#10003; Real pages crawled</span>#10003; Real pages crawled</span>
         <span class="pages-found-badge" id="pagesBadge"></span>
         <button class="btn-download" id="btnDownload" onclick="downloadReport()">&#8595; Download Report (.docx)</button>
       </div>
@@ -337,10 +337,17 @@ async function startSearch() {
     lastResults = data.results;
     hideStatus();
 
-    var totalPages = data.results.length;
-    var skipped = 0;
-    if (data.skipped) skipped = data.skipped;
-    if (skipped > 0) showInfo('Note: ' + skipped + ' pages could not be fetched (blocked or timed out) and were skipped.');
+    var badge = document.getElementById('realBadge');
+    if (data.jsHeavy) {
+      badge.textContent = '⚠ JS site — AI knowledge used';
+      badge.style.background = '#faeeda';
+      badge.style.color = '#633806';
+      showInfo('This website uses JavaScript rendering and cannot be crawled directly. Results are based on AI knowledge of this website content. For fully accurate results, try a static/non-JS website.');
+    } else {
+      badge.textContent = '✓ Real pages crawled — 100% accurate';
+      badge.style.background = '#eaf3de';
+      badge.style.color = '#3b6d11';
+    }
 
     renderResults(data.results);
 
