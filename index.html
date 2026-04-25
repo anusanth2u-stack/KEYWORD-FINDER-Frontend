@@ -55,12 +55,15 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   .error-box { background: #fcebeb; border: 0.5px solid #f09595; border-radius: 10px; padding: 12px 16px; color: #791f1f; font-size: 0.88rem; margin-bottom: 1rem; display: none; line-height: 1.5; }
   .error-box.visible { display: block; }
+  .info-box { background: #eeedf8; border: 0.5px solid #c8c5e0; border-radius: 10px; padding: 10px 14px; color: #3c3489; font-size: 0.84rem; margin-bottom: 1rem; display: none; }
+  .info-box.visible { display: block; }
   .results-card { display: none; }
   .results-card.visible { display: block; }
   .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px; }
   .results-header h2 { font-size: 1rem; font-weight: 700; color: #111; }
   .results-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .pages-found-badge { font-size: 0.8rem; background: #eeedf8; color: #534ab7; padding: 4px 12px; border-radius: 12px; font-weight: 600; }
+  .real-badge { font-size: 0.75rem; background: #eaf3de; color: #3b6d11; padding: 3px 10px; border-radius: 12px; font-weight: 600; }
   .btn-download { padding: 8px 16px; background: #1d6f42; color: #fff; border: none; border-radius: 7px; font-size: 0.84rem; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.15s; }
   .btn-download:hover { background: #155230; }
   .btn-download:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -93,13 +96,15 @@
   .excerpt mark { background: #faeeda; color: #633806; border-radius: 2px; padding: 0 2px; font-weight: 700; }
   .count-pill { display: inline-block; background: #eaf3de; color: #3b6d11; border-radius: 10px; padding: 1px 8px; font-size: 0.74rem; font-weight: 600; margin-left: 6px; }
   .no-results { text-align: center; padding: 2rem; color: #888; font-size: 0.9rem; }
+  .progress-bar-wrap { background: #e8e7f5; border-radius: 20px; height: 6px; margin-top: 8px; overflow: hidden; }
+  .progress-bar { background: #534ab7; height: 100%; border-radius: 20px; transition: width 0.4s ease; width: 0%; }
 </style>
 </head>
 <body>
 <div class="container">
   <header>
     <h1>Website Keyword Finder</h1>
-    <p>Enter a website URL, add keywords manually or upload an Excel file, then search.</p>
+    <p>Crawls your website in real-time and finds keywords on actual pages.</p>
   </header>
 
   <div class="card">
@@ -133,20 +138,27 @@
       <button class="btn-clear-upload" id="btnClearUpload" onclick="clearUpload()">&#x2715; Clear File</button>
     </div>
 
-    <button class="btn-search" onclick="startSearch()">Search Website</button>
+    <button class="btn-search" onclick="startSearch()">&#128269; Search Website</button>
   </div>
 
   <div class="error-box" id="errorBox"></div>
+  <div class="info-box" id="infoBox"></div>
 
   <div class="status-bar" id="statusBar">
     <div class="spinner"></div>
-    <span id="statusMsg">Analyzing website...</span>
+    <div style="flex:1">
+      <div id="statusMsg">Initializing...</div>
+      <div class="progress-bar-wrap" id="progressWrap" style="display:none">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
   </div>
 
   <div class="card results-card" id="resultsCard">
     <div class="results-header">
       <h2>Results</h2>
       <div class="results-actions">
+        <span class="real-badge">&#10003; Real pages crawled</span>
         <span class="pages-found-badge" id="pagesBadge"></span>
         <button class="btn-download" id="btnDownload" onclick="downloadReport()">&#8595; Download Report (.docx)</button>
       </div>
@@ -166,7 +178,7 @@ let uploadedFromFile = [];
 // ---- KEYWORDS ----
 function addKeyword(val) {
   if (val === undefined) {
-    const input = document.getElementById('kwInput');
+    var input = document.getElementById('kwInput');
     val = input.value.trim();
     input.value = '';
     input.focus();
@@ -265,68 +277,73 @@ function resetFileInput() {
   old.parentNode.replaceChild(neo, old);
 }
 
-// ---- UI ----
-function setStatus(msg) { document.getElementById('statusBar').classList.add('visible'); document.getElementById('statusMsg').textContent = msg; }
-function hideStatus() { document.getElementById('statusBar').classList.remove('visible'); }
+// ---- UI HELPERS ----
+function setStatus(msg, progress) {
+  document.getElementById('statusBar').classList.add('visible');
+  document.getElementById('statusMsg').textContent = msg;
+  var wrap = document.getElementById('progressWrap');
+  var bar = document.getElementById('progressBar');
+  if (progress !== undefined) {
+    wrap.style.display = 'block';
+    bar.style.width = Math.min(100, progress) + '%';
+  } else {
+    wrap.style.display = 'none';
+  }
+}
+function hideStatus() {
+  document.getElementById('statusBar').classList.remove('visible');
+  document.getElementById('progressWrap').style.display = 'none';
+}
 function showError(msg) { var b = document.getElementById('errorBox'); b.textContent = msg; b.classList.add('visible'); }
 function hideError() { document.getElementById('errorBox').classList.remove('visible'); }
-function toggleBody(id) { document.getElementById('body-'+id).classList.toggle('open'); document.getElementById('chev-'+id).classList.toggle('open'); }
+function showInfo(msg) { var b = document.getElementById('infoBox'); b.textContent = msg; b.classList.add('visible'); }
+function hideInfo() { document.getElementById('infoBox').classList.remove('visible'); }
+function toggleBody(id) {
+  document.getElementById('body-'+id).classList.toggle('open');
+  document.getElementById('chev-'+id).classList.toggle('open');
+}
 function esc(t) { return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-
-function parseJSON(text) {
-  if (!text) return '[]';
-  text = text.trim().replace(/^```json\s*/i,'').replace(/^```\s*/i,'').replace(/```\s*$/i,'').trim();
-  try { JSON.parse(text); return text; } catch(e) {}
-  var a = text.indexOf('['), b = text.lastIndexOf(']');
-  if (a !== -1 && b > a) { try { var s = text.substring(a,b+1); JSON.parse(s); return s; } catch(e) {} }
-  var c = text.indexOf('{'), d = text.lastIndexOf('}');
-  if (c !== -1 && d > c) { try { var s2 = '['+text.substring(c,d+1)+']'; JSON.parse(s2); return s2; } catch(e) {} }
-  return '[]';
-}
-
-// ---- BACKEND ----
-async function callBackend(messages, system) {
-  var res = await fetch(BACKEND_URL + '/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages: messages, system: system })
-  });
-  var data = await res.json();
-  if (!res.ok) throw new Error(data.error || ('Server error ' + res.status));
-  return data.result;
-}
 
 // ---- SEARCH ----
 async function startSearch() {
-  hideError();
+  hideError(); hideInfo();
   var url = document.getElementById('urlInput').value.trim();
   if (!url) { showError('Please enter a website URL.'); return; }
+  if (!url.startsWith('http')) url = 'https://' + url;
   if (keywords.length === 0) { showError('Please add at least one keyword.'); return; }
+
   document.querySelector('.btn-search').disabled = true;
   document.getElementById('resultsCard').classList.remove('visible');
   lastResults = [];
 
   try {
-    setStatus('Step 1 of 2 — Discovering pages on the website...');
-    var discoverRaw = await callBackend(
-      [{ role: 'user', content: 'Website: ' + url + '\nRespond with only a JSON array of pages.' }],
-      'You are a web researcher. List the most important pages on the given website.\nReturn ONLY a raw JSON array. No markdown, no code fences, no explanation.\nEach item: { "url": "full URL", "title": "page title" }.\nInclude homepage plus up to 10 other likely pages.'
-    );
-    var pages;
-    try { pages = JSON.parse(parseJSON(discoverRaw)); } catch(e) { throw new Error('Could not parse page list. Please try again.'); }
-    if (!Array.isArray(pages) || pages.length === 0) throw new Error('No pages found for this URL.');
+    setStatus('Crawling website — fetching real pages...', 10);
 
-    setStatus('Step 2 of 2 — Searching ' + pages.length + ' pages for ' + keywords.length + ' keyword(s)...');
-    var searchRaw = await callBackend(
-      [{ role: 'user', content: 'Pages:\n' + JSON.stringify(pages) + '\n\nKeywords: ' + keywords.join(', ') + '\n\nRespond with only a JSON array.' }],
-      'You are a keyword search engine. Analyze each page and find keywords.\nRespond with ONLY a raw JSON array. No markdown. No code fences. No explanation.\nEach item: {"url":"page url","title":"page title","keywords_found":[{"keyword":"word","count":3,"excerpts":["Example sentence."]}],"keywords_not_found":["word2"]}\nOnly mark found if the page topic genuinely contains the keyword.'
-    );
-    var results;
-    try { results = JSON.parse(parseJSON(searchRaw)); } catch(e) { throw new Error('Could not parse search results. Please try again.'); }
-    if (!Array.isArray(results)) throw new Error('Unexpected response. Please try again.');
-    lastResults = results;
+    var res = await fetch(BACKEND_URL + '/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url, keywords: keywords })
+    });
+
+    setStatus('Analyzing page content with AI...', 60);
+
+    var data = await res.json();
+    if (!res.ok) throw new Error(data.error || ('Server error ' + res.status));
+    if (!data.results || !Array.isArray(data.results)) throw new Error('Unexpected response from server.');
+
+    setStatus('Finalizing results...', 95);
+    await new Promise(r => setTimeout(r, 400));
+
+    lastResults = data.results;
     hideStatus();
-    renderResults(results);
+
+    var totalPages = data.results.length;
+    var skipped = 0;
+    if (data.skipped) skipped = data.skipped;
+    if (skipped > 0) showInfo('Note: ' + skipped + ' pages could not be fetched (blocked or timed out) and were skipped.');
+
+    renderResults(data.results);
+
   } catch(err) {
     hideStatus();
     showError('Error: ' + err.message);
@@ -349,7 +366,10 @@ function renderResults(results) {
   var kwSum = {};
   keywords.forEach(function(k){ kwSum[k] = 0; });
   results.forEach(function(r){
-    (r.keywords_found||[]).forEach(function(kf){ var k=(kf.keyword||'').toLowerCase(); if(kwSum[k]!==undefined) kwSum[k]++; });
+    (r.keywords_found||[]).forEach(function(kf){
+      var k = (kf.keyword||'').toLowerCase();
+      if (kwSum[k] !== undefined) kwSum[k]++;
+    });
   });
 
   document.getElementById('summaryChips').innerHTML = keywords.map(function(kw){
@@ -358,24 +378,40 @@ function renderResults(results) {
   }).join('');
 
   if (!results.length) {
-    document.getElementById('resultsList').innerHTML = '<div class="no-results">No results to display.</div>';
+    document.getElementById('resultsList').innerHTML = '<div class="no-results">No pages could be crawled. Please check the URL.</div>';
     card.classList.add('visible'); return;
   }
 
   document.getElementById('resultsList').innerHTML = results.map(function(r,i){
     var found = r.keywords_found||[], notFound = r.keywords_not_found||[];
-    var badges = found.map(function(kf){ return '<span class="badge found">'+esc(kf.keyword||'')+' &times;'+(kf.count||0)+'</span>'; })
-      .concat(notFound.map(function(kw){ return '<span class="badge notfound">'+esc(kw)+'</span>'; })).join('');
+    var badges = found.map(function(kf){
+      return '<span class="badge found">'+esc(kf.keyword||'')+' &times;'+(kf.count||0)+'</span>';
+    }).concat(notFound.map(function(kw){
+      return '<span class="badge notfound">'+esc(kw)+'</span>';
+    })).join('');
+
     var foundHTML = found.map(function(kf){
-      var ex = (kf.excerpts||[]).map(function(e){ return '<div class="excerpt">'+highlight(e,kf.keyword||'')+'</div>'; }).join('');
-      return '<div class="kw-section"><div class="kw-label">'+esc(kf.keyword||'')+'<span class="count-pill">'+(kf.count||0)+' occurrence'+((kf.count||0)!==1?'s':'')+'</span></div>'+ex+'</div>';
+      var ex = (kf.excerpts||[]).map(function(e){
+        return '<div class="excerpt">'+highlight(e, kf.keyword||'')+'</div>';
+      }).join('');
+      return '<div class="kw-section"><div class="kw-label">'+esc(kf.keyword||'')+
+        '<span class="count-pill">'+(kf.count||0)+' occurrence'+((kf.count||0)!==1?'s':'')+'</span></div>'+ex+'</div>';
     }).join('');
-    var missHTML = notFound.length ? '<div class="kw-section"><div class="kw-label miss">Not found on this page</div><div style="font-size:0.84rem;color:#aaa;">'+notFound.map(esc).join(', ')+'</div></div>' : '';
+
+    var missHTML = notFound.length ?
+      '<div class="kw-section"><div class="kw-label miss">Not found on this page</div>'+
+      '<div style="font-size:0.84rem;color:#aaa;">'+notFound.map(esc).join(', ')+'</div></div>' : '';
+
     return '<div class="result-item">'+
       '<div class="result-item-header" onclick="toggleBody('+i+')">'+
-        '<div class="result-page-info"><div class="result-page-url">'+esc(r.url||'')+'</div><div class="result-page-title">'+esc(r.title||'Untitled page')+'</div></div>'+
-        '<div class="result-right"><div class="result-badges">'+badges+'</div>'+
-        '<button class="btn-open" onclick="event.stopPropagation();window.open('+JSON.stringify(r.url||'')+',\'_blank\')">Open URL &#8599;</button></div>'+
+        '<div class="result-page-info">'+
+          '<div class="result-page-url">'+esc(r.url||'')+'</div>'+
+          '<div class="result-page-title">'+esc(r.title||'Untitled page')+'</div>'+
+        '</div>'+
+        '<div class="result-right">'+
+          '<div class="result-badges">'+badges+'</div>'+
+          '<button class="btn-open" onclick="event.stopPropagation();window.open('+JSON.stringify(r.url||'')+',\'_blank\')">Open URL &#8599;</button>'+
+        '</div>'+
         '<div class="chevron" id="chev-'+i+'">&#9654;</div>'+
       '</div>'+
       '<div class="result-body" id="body-'+i+'">'+foundHTML+missHTML+'</div>'+
@@ -386,9 +422,9 @@ function renderResults(results) {
   card.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// ---- DOCX DOWNLOAD (pure JSZip + raw XML) ----
+// ---- DOCX DOWNLOAD ----
 async function downloadReport() {
-  if (!lastResults.length) { showError('No results to export. Please run a search first.'); return; }
+  if (!lastResults.length) { showError('No results to export.'); return; }
   var btn = document.getElementById('btnDownload');
   btn.disabled = true; btn.textContent = 'Generating...';
 
@@ -397,38 +433,36 @@ async function downloadReport() {
     var now = new Date();
     var dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
-    // Build XML content
-    var bodyXml = '';
+    function xmlEsc(t) {
+      return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+    }
 
     function para(text, opts) {
       opts = opts || {};
       var pPr = '';
-      if (opts.spacing) pPr += '<w:spacing w:before="'+opts.spacing+'" w:after="'+(opts.spacingAfter||0)+'"/>';
-      if (opts.shd) pPr += '<w:shd w:val="clear" w:color="auto" w:fill="'+opts.shd+'"/>';
+      if (opts.spacingBefore || opts.spacingAfter) pPr += '<w:spacing w:before="'+(opts.spacingBefore||0)+'" w:after="'+(opts.spacingAfter||0)+'"/>';
+      if (opts.bottomBorder) pPr += '<w:pBdr><w:bottom w:val="single" w:sz="8" w:space="1" w:color="3C3489"/></w:pBdr>';
+      if (opts.center) pPr += '<w:jc w:val="center"/>';
+      if (opts.topBorder) pPr += '<w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="CCCCCC"/></w:pBdr>';
       if (pPr) pPr = '<w:pPr>'+pPr+'</w:pPr>';
       var rPr = '';
       if (opts.bold) rPr += '<w:b/><w:bCs/>';
       if (opts.size) rPr += '<w:sz w:val="'+opts.size+'"/><w:szCs w:val="'+opts.size+'"/>';
       if (opts.color) rPr += '<w:color w:val="'+opts.color+'"/>';
-      if (opts.italic) rPr += '<w:i/>';
+      if (opts.italic) rPr += '<w:i/><w:iCs/>';
       if (rPr) rPr = '<w:rPr>'+rPr+'</w:rPr>';
-      var safeText = String(text).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      return '<w:p>'+pPr+'<w:r>'+rPr+'<w:t xml:space="preserve">'+safeText+'</w:t></w:r></w:p>';
+      return '<w:p>'+pPr+'<w:r>'+rPr+'<w:t xml:space="preserve">'+xmlEsc(text)+'</w:t></w:r></w:p>';
     }
 
-    function twoRunPara(label, value, opts) {
-      opts = opts || {};
-      var safeLabel = String(label).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      var safeValue = String(value).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-      var sizeVal = opts.size || '20';
-      return '<w:p><w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="'+sizeVal+'"/><w:szCs w:val="'+sizeVal+'"/><w:color w:val="555555"/></w:rPr><w:t xml:space="preserve">'+safeLabel+'</w:t></w:r>'+
-        '<w:r><w:rPr><w:sz w:val="'+sizeVal+'"/><w:szCs w:val="'+sizeVal+'"/><w:color w:val="3C3489"/></w:rPr><w:t xml:space="preserve">'+safeValue+'</w:t></w:r></w:p>';
+    function twoRunPara(label, value, color) {
+      return '<w:p><w:pPr><w:spacing w:before="0" w:after="80"/></w:pPr>'+
+        '<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="20"/><w:szCs w:val="20"/><w:color w:val="555555"/></w:rPr><w:t xml:space="preserve">'+xmlEsc(label)+'</w:t></w:r>'+
+        '<w:r><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/><w:color w:val="'+(color||'3C3489')+'"/></w:rPr><w:t xml:space="preserve">'+xmlEsc(value)+'</w:t></w:r></w:p>';
     }
 
-    function cell(text, widthPct, opts) {
+    function tcell(text, widthPct, opts) {
       opts = opts || {};
       var fill = opts.fill || 'FFFFFF';
-      var safeText = String(text||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
       var rPr = '';
       if (opts.bold) rPr += '<w:b/><w:bCs/>';
       if (opts.color) rPr += '<w:color w:val="'+opts.color+'"/>';
@@ -436,162 +470,126 @@ async function downloadReport() {
       if (rPr) rPr = '<w:rPr>'+rPr+'</w:rPr>';
       var align = opts.center ? '<w:jc w:val="center"/>' : '';
       return '<w:tc>'+
-        '<w:tcPr>'+
-          '<w:tcW w:w="'+widthPct+'" w:type="pct"/>'+
-          '<w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/>'+
-          '<w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar>'+
+        '<w:tcPr><w:tcW w:w="'+widthPct+'" w:type="pct"/>'+
+        '<w:shd w:val="clear" w:color="auto" w:fill="'+fill+'"/>'+
+        '<w:tcMar><w:top w:w="80" w:type="dxa"/><w:left w:w="120" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/><w:right w:w="120" w:type="dxa"/></w:tcMar>'+
         '</w:tcPr>'+
-        '<w:p><w:pPr>'+align+'</w:pPr><w:r>'+rPr+'<w:t xml:space="preserve">'+safeText+'</w:t></w:r></w:p>'+
+        '<w:p><w:pPr>'+align+'</w:pPr><w:r>'+rPr+'<w:t xml:space="preserve">'+xmlEsc(text)+'</w:t></w:r></w:p>'+
       '</w:tc>';
     }
 
-    function tableRow(cells) { return '<w:tr>'+cells.join('')+'</w:tr>'; }
-    function table(rows) {
-      return '<w:tbl>'+
-        '<w:tblPr>'+
-          '<w:tblW w:w="5000" w:type="pct"/>'+
-          '<w:tblBorders>'+
-            '<w:top w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
-            '<w:left w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
-            '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
-            '<w:right w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
-            '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
-            '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
-          '</w:tblBorders>'+
-          '<w:tblCellMar><w:top w:w="0" w:type="dxa"/><w:left w:w="0" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="0" w:type="dxa"/></w:tblCellMar>'+
-        '</w:tblPr>'+
-        rows.join('')+
-      '</w:tbl>';
+    function trow(cells) { return '<w:tr>'+cells.join('')+'</w:tr>'; }
+
+    function tbl(rows) {
+      return '<w:tbl><w:tblPr>'+
+        '<w:tblW w:w="5000" w:type="pct"/>'+
+        '<w:tblBorders>'+
+          '<w:top w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
+          '<w:left w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
+          '<w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
+          '<w:right w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
+          '<w:insideH w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
+          '<w:insideV w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/>'+
+        '</w:tblBorders>'+
+      '</w:tblPr>'+rows.join('')+'</w:tbl>';
     }
 
-    function sectionHeading(text) {
-      var safeText = text.replace(/&/g,'&amp;');
-      return '<w:p>'+
-        '<w:pPr><w:spacing w:before="320" w:after="160"/><w:pBdr><w:bottom w:val="single" w:sz="8" w:space="1" w:color="3C3489"/></w:pBdr></w:pPr>'+
-        '<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="30"/><w:szCs w:val="30"/><w:color w:val="3C3489"/></w:rPr><w:t>'+safeText+'</w:t></w:r>'+
-      '</w:p>';
+    function sectionHead(text) {
+      return para(text, { bold: true, size: '28', color: '3C3489', bottomBorder: true, spacingBefore: 320, spacingAfter: 180 });
     }
 
-    // TITLE
-    bodyXml += para('Website Keyword Finder Report', { bold: true, size: '52', color: '3C3489', spacing: 0, spacingAfter: 120 });
-    bodyXml += para('Generated on ' + dateStr, { size: '20', color: '888888', spacing: 0, spacingAfter: 80 });
-    bodyXml += twoRunPara('Website:  ', websiteUrl);
-    bodyXml += '<w:p><w:pPr><w:spacing w:before="0" w:after="320"/></w:pPr></w:p>';
+    var body = '';
 
-    // SUMMARY SECTION
-    bodyXml += sectionHeading('Summary');
+    // Title block
+    body += para('Website Keyword Finder Report', { bold: true, size: '52', color: '3C3489', spacingBefore: 0, spacingAfter: 120 });
+    body += para('Generated on ' + dateStr, { size: '20', color: '888888', spacingBefore: 0, spacingAfter: 80 });
+    body += twoRunPara('Website:   ', websiteUrl, '3C3489');
+    body += twoRunPara('Keywords:  ', keywords.join(', '), '333333');
+    body += '<w:p><w:pPr><w:spacing w:before="0" w:after="320"/></w:pPr></w:p>';
 
-    var sumRows = [];
-    sumRows.push(tableRow([
-      cell('Keyword', 2500, { fill: 'EEEDF8', bold: true, color: '333333' }),
-      cell('Pages Found On', 1250, { fill: 'EEEDF8', bold: true, color: '333333', center: true }),
-      cell('Total Instances', 1250, { fill: 'EEEDF8', bold: true, color: '333333', center: true }),
-      cell('Status', 0, { fill: 'EEEDF8', bold: true, color: '333333', center: true }),
-    ]));
-
+    // Summary table
+    body += sectionHead('Summary');
+    var sumRows = [trow([
+      tcell('Keyword', 2500, { fill: 'EEEDF8', bold: true }),
+      tcell('Pages Found On', 1250, { fill: 'EEEDF8', bold: true, center: true }),
+      tcell('Total Instances', 1250, { fill: 'EEEDF8', bold: true, center: true }),
+      tcell('Status', 1000, { fill: 'EEEDF8', bold: true, center: true }),
+    ])];
     keywords.forEach(function(kw) {
-      var totalPages = 0, totalCount = 0;
+      var tp = 0, tc = 0;
       lastResults.forEach(function(r) {
         (r.keywords_found||[]).forEach(function(kf) {
-          if ((kf.keyword||'').toLowerCase() === kw) { totalPages++; totalCount += (parseInt(kf.count)||0); }
+          if ((kf.keyword||'').toLowerCase() === kw) { tp++; tc += (parseInt(kf.count)||0); }
         });
       });
-      var found = totalPages > 0;
-      sumRows.push(tableRow([
-        cell(kw, 2500, { bold: true }),
-        cell(found ? totalPages + (totalPages===1?' page':' pages') : '—', 1250, { center: true, color: found?'1D6F42':'AAAAAA' }),
-        cell(found ? String(totalCount) : '—', 1250, { center: true, color: found?'1D6F42':'AAAAAA', bold: found }),
-        cell(found ? 'Found' : 'Not Found', 0, { center: true, fill: found?'EAF3DE':'F5F5F5', color: found?'1D6F42':'AAAAAA', bold: found }),
+      var found = tp > 0;
+      sumRows.push(trow([
+        tcell(kw, 2500, { bold: true }),
+        tcell(found ? tp + (tp===1?' page':' pages') : '—', 1250, { center: true, color: found?'1D6F42':'AAAAAA' }),
+        tcell(found ? String(tc) : '—', 1250, { center: true, color: found?'1D6F42':'AAAAAA', bold: found }),
+        tcell(found ? 'Found' : 'Not Found', 1000, { center: true, fill: found?'EAF3DE':'F5F5F5', color: found?'1D6F42':'AAAAAA', bold: found }),
       ]));
     });
+    body += tbl(sumRows);
+    body += '<w:p><w:pPr><w:spacing w:before="480" w:after="0"/></w:pPr></w:p>';
 
-    bodyXml += table(sumRows);
-    bodyXml += '<w:p><w:pPr><w:spacing w:before="480" w:after="0"/></w:pPr></w:p>';
-
-    // DETAILED RESULTS
-    var filteredResults = lastResults.filter(function(r) { return r.keywords_found && r.keywords_found.length > 0; });
-
-    if (filteredResults.length > 0) {
-      bodyXml += sectionHeading('Detailed Results by Page');
-
-      filteredResults.forEach(function(r, idx) {
-        var safeTitle = (r.title||'Untitled Page').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        var safeUrl = (r.url||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-
-        bodyXml += '<w:p><w:pPr><w:spacing w:before="280" w:after="60"/></w:pPr>'+
+    // Detailed results
+    var filtered = lastResults.filter(function(r) { return r.keywords_found && r.keywords_found.length > 0; });
+    if (filtered.length > 0) {
+      body += sectionHead('Detailed Results by Page');
+      filtered.forEach(function(r, idx) {
+        body += '<w:p><w:pPr><w:spacing w:before="280" w:after="60"/></w:pPr>'+
           '<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="22"/><w:szCs w:val="22"/><w:color w:val="3C3489"/></w:rPr><w:t xml:space="preserve">'+(idx+1)+'.  </w:t></w:r>'+
-          '<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="22"/><w:szCs w:val="22"/><w:color w:val="111111"/></w:rPr><w:t>'+safeTitle+'</w:t></w:r>'+
-        '</w:p>';
-        bodyXml += '<w:p><w:pPr><w:spacing w:before="0" w:after="140"/></w:pPr>'+
-          '<w:r><w:rPr><w:i/><w:sz w:val="18"/><w:szCs w:val="18"/><w:color w:val="3C3489"/></w:rPr><w:t>'+safeUrl+'</w:t></w:r></w:p>';
+          '<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="22"/><w:szCs w:val="22"/><w:color w:val="111111"/></w:rPr><w:t>'+xmlEsc(r.title||'Untitled Page')+'</w:t></w:r></w:p>';
+        body += para(r.url||'', { italic: true, size: '18', color: '3C3489', spacingBefore: 0, spacingAfter: 140 });
 
-        var pageRows = [];
-        pageRows.push(tableRow([
-          cell('Keyword', 2200, { fill: 'EEEDF8', bold: true, color: '333333' }),
-          cell('Instances', 900, { fill: 'EEEDF8', bold: true, color: '333333', center: true }),
-          cell('Context / Excerpt', 0, { fill: 'EEEDF8', bold: true, color: '333333' }),
-        ]));
-
+        var pRows = [trow([
+          tcell('Keyword', 2200, { fill: 'EEEDF8', bold: true }),
+          tcell('Instances', 900, { fill: 'EEEDF8', bold: true, center: true }),
+          tcell('Context / Excerpt', 1900, { fill: 'EEEDF8', bold: true }),
+        ])];
         (r.keywords_found||[]).forEach(function(kf) {
-          var excerptText = (kf.excerpts||[]).join(' | ') || '—';
-          pageRows.push(tableRow([
-            cell(kf.keyword||'', 2200, { bold: true }),
-            cell(String(parseInt(kf.count)||0), 900, { center: true, color: '1D6F42', bold: true }),
-            cell(excerptText, 0, { color: '444444', size: '16' }),
+          var ex = (kf.excerpts||[]).join(' | ') || '—';
+          pRows.push(trow([
+            tcell(kf.keyword||'', 2200, { bold: true }),
+            tcell(String(parseInt(kf.count)||0), 900, { center: true, color: '1D6F42', bold: true }),
+            tcell(ex, 1900, { size: '16', color: '444444' }),
           ]));
         });
-
-        bodyXml += table(pageRows);
+        body += tbl(pRows);
       });
     }
 
-    // Build full document XML
     var docXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
-      '<w:document xmlns:wpc="http://schemas.microsoft.com/office/word/2010/wordprocessingCanvas" '+
-      'xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" '+
-      'xmlns:o="urn:schemas-microsoft-com:office:office" '+
-      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '+
-      'xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math" '+
-      'xmlns:v="urn:schemas-microsoft-com:vml" '+
-      'xmlns:wp14="http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing" '+
-      'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '+
-      'xmlns:w10="urn:schemas-microsoft-com:office:word" '+
-      'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '+
-      'xmlns:w14="http://schemas.microsoft.com/office/word/2010/wordml" '+
-      'xmlns:wpg="http://schemas.microsoft.com/office/word/2010/wordprocessingGroup" '+
-      'xmlns:wpi="http://schemas.microsoft.com/office/word/2010/wordprocessingInk" '+
-      'xmlns:wne="http://schemas.microsoft.com/office/word/2006/wordml" '+
-      'xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape" mc:Ignorable="w14 wp14">'+
-      '<w:body>'+bodyXml+
+      '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '+
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'+
+      '<w:body>'+body+
       '<w:sectPr>'+
         '<w:headerReference w:type="default" r:id="rId1"/>'+
         '<w:footerReference w:type="default" r:id="rId2"/>'+
         '<w:pgSz w:w="12240" w:h="15840"/>'+
         '<w:pgMar w:top="1200" w:right="1200" w:bottom="1200" w:left="1200" w:header="720" w:footer="720" w:gutter="0"/>'+
-      '</w:sectPr>'+
-    '</w:body></w:document>';
+      '</w:sectPr></w:body></w:document>';
 
-    var safeWebsite = websiteUrl.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     var headerXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
-      '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'+
+      '<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'+
       '<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="1" w:color="3C3489"/></w:pBdr></w:pPr>'+
-      '<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="18"/><w:szCs w:val="18"/><w:color w:val="3C3489"/></w:rPr><w:t xml:space="preserve">Website Keyword Finder Report   |   </w:t></w:r>'+
-      '<w:r><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/><w:color w:val="888888"/></w:rPr><w:t>'+safeWebsite+'</w:t></w:r>'+
-      '</w:p></w:hdr>';
+      '<w:r><w:rPr><w:b/><w:bCs/><w:sz w:val="18"/><w:szCs w:val="18"/><w:color w:val="3C3489"/></w:rPr>'+
+      '<w:t xml:space="preserve">Website Keyword Finder   |   </w:t></w:r>'+
+      '<w:r><w:rPr><w:sz w:val="18"/><w:szCs w:val="18"/><w:color w:val="888888"/></w:rPr>'+
+      '<w:t>'+xmlEsc(websiteUrl)+'</w:t></w:r></w:p></w:hdr>';
 
-    var safeDate = dateStr.replace(/&/g,'&amp;');
     var footerXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
       '<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'+
       '<w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="1" w:color="CCCCCC"/></w:pBdr></w:pPr>'+
       '<w:r><w:rPr><w:sz w:val="16"/><w:szCs w:val="16"/><w:color w:val="AAAAAA"/></w:rPr>'+
-      '<w:t>Confidential   —   '+safeDate+'</w:t></w:r></w:p></w:ftr>';
+      '<w:t>Confidential   —   '+xmlEsc(dateStr)+'</w:t></w:r></w:p></w:ftr>';
 
     var relsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
       '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>'+
       '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>'+
-      '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>'+
-      '<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'+
+      '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'+
       '</Relationships>';
 
     var stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
@@ -599,29 +597,11 @@ async function downloadReport() {
       '<w:docDefaults><w:rPrDefault><w:rPr>'+
       '<w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/>'+
       '<w:sz w:val="20"/><w:szCs w:val="20"/>'+
-      '</w:rPr></w:rPrDefault></w:docDefaults>'+
-      '</w:styles>';
-
-    var settingsXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
-      '<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'+
-      '<w:defaultTabStop w:val="720"/></w:settings>';
-
-    var appXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
-      '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties">'+
-      '<Application>Website Keyword Finder</Application></Properties>';
-
-    var coreXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
-      '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" '+
-      'xmlns:dc="http://purl.org/dc/elements/1.1/">'+
-      '<dc:title>Keyword Finder Report</dc:title>'+
-      '<dc:creator>Website Keyword Finder</dc:creator>'+
-      '</cp:coreProperties>';
+      '</w:rPr></w:rPrDefault></w:docDefaults></w:styles>';
 
     var mainRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
       '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
       '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'+
-      '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>'+
-      '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>'+
       '</Relationships>';
 
     var contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
@@ -630,11 +610,8 @@ async function downloadReport() {
       '<Default Extension="xml" ContentType="application/xml"/>'+
       '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'+
       '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'+
-      '<Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>'+
       '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>'+
       '<Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/>'+
-      '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'+
-      '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>'+
       '</Types>';
 
     var zip = new JSZip();
@@ -642,27 +619,22 @@ async function downloadReport() {
     zip.file('_rels/.rels', mainRels);
     zip.file('word/document.xml', docXml);
     zip.file('word/styles.xml', stylesXml);
-    zip.file('word/settings.xml', settingsXml);
     zip.file('word/header1.xml', headerXml);
     zip.file('word/footer1.xml', footerXml);
     zip.file('word/_rels/document.xml.rels', relsXml);
-    zip.file('docProps/app.xml', appXml);
-    zip.file('docProps/core.xml', coreXml);
 
     var blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'Keyword-Report-' + now.toISOString().slice(0,10) + '.docx';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
 
   } catch(err) {
     showError('Could not generate report: ' + err.message);
     console.error(err);
   } finally {
     btn.disabled = false;
-    btn.textContent = '\u2193 Download Report (.docx)';
+    btn.innerHTML = '&#8595; Download Report (.docx)';
   }
 }
 </script>
