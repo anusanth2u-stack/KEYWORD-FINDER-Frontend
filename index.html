@@ -51,11 +51,9 @@
     transition: border-color 0.15s;
     font-family: inherit;
   }
-
   input:focus { border-color: #888; background: #fff; }
 
   .keyword-area { margin-top: 1.25rem; }
-
   .keyword-input-row { display: flex; gap: 8px; margin-bottom: 8px; }
   .keyword-input-row input { flex: 1; }
 
@@ -72,7 +70,6 @@
     font-size: 0.83rem;
     font-weight: 500;
   }
-
   .tag button {
     background: none; border: none; cursor: pointer;
     color: #7f77dd; font-size: 14px; padding: 0; line-height: 1;
@@ -144,6 +141,7 @@
     font-size: 0.88rem;
     margin-bottom: 1rem;
     display: none;
+    line-height: 1.5;
   }
   .error-box.visible { display: block; }
 
@@ -313,7 +311,7 @@
 
 <script>
   // -------------------------------------------------------
-  // CONFIGURATION — update this after deploying to Render
+  // CONFIGURATION — update with your Render URL
   // -------------------------------------------------------
   const BACKEND_URL = 'https://keyword-finder-backend.onrender.com';
   // -------------------------------------------------------
@@ -330,7 +328,7 @@
     input.focus();
   }
 
-  document.getElementById('kwInput').addEventListener('keydown', e => {
+  document.getElementById('kwInput').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') { e.preventDefault(); addKeyword(); }
   });
 
@@ -342,9 +340,9 @@
 
   function renderTags() {
     const c = document.getElementById('tagContainer');
-    c.innerHTML = keywords.map(k =>
-      `<span class="tag">${k}<button onclick="removeKeyword('${k}')" title="Remove">✕</button></span>`
-    ).join('');
+    c.innerHTML = keywords.map(function(k) {
+      return '<span class="tag">' + k + '<button onclick="removeKeyword(\'' + k + '\')" title="Remove">&#x2715;</button></span>';
+    }).join('');
   }
 
   function setStatus(msg) {
@@ -370,14 +368,33 @@
     chev.classList.toggle('open');
   }
 
+  function parseJSON(text) {
+    text = text.trim();
+    text = text.replace(/^```json\s*/i, '');
+    text = text.replace(/^```\s*/i, '');
+    text = text.replace(/```\s*$/i, '');
+    text = text.trim();
+    var arrStart = text.indexOf('[');
+    var arrEnd = text.lastIndexOf(']');
+    if (arrStart !== -1 && arrEnd !== -1) {
+      return text.substring(arrStart, arrEnd + 1);
+    }
+    var objStart = text.indexOf('{');
+    var objEnd = text.lastIndexOf('}');
+    if (objStart !== -1 && objEnd !== -1) {
+      return text.substring(objStart, objEnd + 1);
+    }
+    return text;
+  }
+
   async function callBackend(messages, system) {
-    const res = await fetch(`${BACKEND_URL}/search`, {
+    const res = await fetch(BACKEND_URL + '/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, system, max_tokens: 4000 }),
+      body: JSON.stringify({ messages: messages, system: system }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+    if (!res.ok) throw new Error(data.error || ('Server error ' + res.status));
     return data.result;
   }
 
@@ -386,10 +403,6 @@
     const url = document.getElementById('urlInput').value.trim();
     if (!url) { showError('Please enter a website URL.'); return; }
     if (keywords.length === 0) { showError('Please add at least one keyword.'); return; }
-    if (BACKEND_URL.includes('YOUR-RENDER-APP')) {
-      showError('Please update BACKEND_URL in the HTML with your Render.com deployment URL.');
-      return;
-    }
 
     document.querySelector('.btn-search').disabled = true;
     document.getElementById('resultsCard').classList.remove('visible');
@@ -397,54 +410,34 @@
     try {
       setStatus('Step 1 of 2 — Discovering pages on the website...');
 
-      const discoverSystem = `You are a web researcher. Given a website URL, list the most important/representative pages on that site.
-Return ONLY a JSON array of objects. Each object: { "url": "full URL", "title": "page title guess" }.
-Include the homepage plus up to 12 other likely pages (about, contact, blog posts, product pages, docs, etc.).
-Construct realistic URLs based on the domain structure. Return only valid JSON, no markdown, no explanation.`;
+      const discoverSystem = 'You are a web researcher. Given a website URL, list the most important pages on that site.\nReturn ONLY a JSON array of objects. Each object must have exactly: { "url": "full URL", "title": "page title" }.\nInclude the homepage plus up to 10 other likely pages.\nReturn only valid JSON array. No markdown, no explanation, no code fences.';
 
-      const discoverResp = await callBackend(
-        [{ role: 'user', content: `Website: ${url}\nList its main pages as JSON.` }],
+      const discoverRaw = await callBackend(
+        [{ role: 'user', content: 'Website: ' + url + '\nList its main pages as a JSON array.' }],
         discoverSystem
       );
 
       let pages;
       try {
-        pages = JSON.parse(discoverResp.replace(/```json|```/g, '').trim());
+        pages = JSON.parse(parseJSON(discoverRaw));
       } catch (e) {
         throw new Error('Could not parse page list. Please try again.');
       }
 
       if (!Array.isArray(pages) || pages.length === 0) throw new Error('No pages found for this URL.');
 
-      setStatus(`Step 2 of 2 — Searching ${pages.length} pages for: ${keywords.join(', ')}...`);
+      setStatus('Step 2 of 2 — Searching ' + pages.length + ' pages for: ' + keywords.join(', ') + '...');
 
-      const searchSystem = `You are a keyword search engine. Given a list of web pages (URLs and titles) and keywords, analyze each page and determine which keywords likely appear based on the page topic, URL, and title.
+      const searchSystem = 'You are a keyword search engine. Given a list of web pages and keywords, determine which keywords likely appear on each page based on the page topic, URL, and title.\n\nReturn ONLY a valid JSON array. Each item must have:\n{\n  "url": "page url",\n  "title": "page title",\n  "keywords_found": [\n    {\n      "keyword": "keyword",\n      "count": 3,\n      "excerpts": ["Short sentence showing keyword in context (10-20 words)", "Another example sentence"]\n    }\n  ],\n  "keywords_not_found": ["keyword1"]\n}\n\nBe realistic. Only mark a keyword as found if the page topic genuinely would contain it.\nReturn ONLY the JSON array. No markdown, no explanation, no code fences.';
 
-For each page return a JSON array of objects:
-{
-  "url": "page url",
-  "title": "page title",
-  "keywords_found": [
-    {
-      "keyword": "keyword",
-      "count": estimated occurrences (integer),
-      "excerpts": ["Short realistic sentence showing keyword in context, 10-20 words each — 2 to 3 excerpts"]
-    }
-  ],
-  "keywords_not_found": ["keyword1", "keyword2"]
-}
-
-Be realistic. Only mark a keyword found if the page topic genuinely would contain it.
-Return ONLY valid JSON array, no markdown, no explanation.`;
-
-      const searchResp = await callBackend(
-        [{ role: 'user', content: `Pages:\n${JSON.stringify(pages, null, 2)}\n\nKeywords: ${keywords.join(', ')}\n\nReturn results JSON.` }],
+      const searchRaw = await callBackend(
+        [{ role: 'user', content: 'Pages:\n' + JSON.stringify(pages, null, 2) + '\n\nKeywords to find: ' + keywords.join(', ') + '\n\nReturn results as JSON array.' }],
         searchSystem
       );
 
       let results;
       try {
-        results = JSON.parse(searchResp.replace(/```json|```/g, '').trim());
+        results = JSON.parse(parseJSON(searchRaw));
       } catch (e) {
         throw new Error('Could not parse search results. Please try again.');
       }
@@ -461,7 +454,7 @@ Return ONLY valid JSON array, no markdown, no explanation.`;
   }
 
   function highlight(text, kw) {
-    const re = new RegExp(`(${kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    const re = new RegExp('(' + kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
     return text.replace(re, '<mark>$1</mark>');
   }
 
@@ -471,21 +464,21 @@ Return ONLY valid JSON array, no markdown, no explanation.`;
     const chips = document.getElementById('summaryChips');
     const badge = document.getElementById('pagesBadge');
 
-    const pagesWithHits = results.filter(r => r.keywords_found && r.keywords_found.length > 0);
-    badge.textContent = `${pagesWithHits.length} of ${results.length} pages matched`;
+    const pagesWithHits = results.filter(function(r) { return r.keywords_found && r.keywords_found.length > 0; });
+    badge.textContent = pagesWithHits.length + ' of ' + results.length + ' pages matched';
 
     const kwSummary = {};
-    keywords.forEach(kw => kwSummary[kw] = 0);
-    results.forEach(r => {
-      (r.keywords_found || []).forEach(kf => {
+    keywords.forEach(function(kw) { kwSummary[kw] = 0; });
+    results.forEach(function(r) {
+      (r.keywords_found || []).forEach(function(kf) {
         const key = kf.keyword.toLowerCase();
         if (kwSummary[key] !== undefined) kwSummary[key]++;
       });
     });
 
-    chips.innerHTML = keywords.map(kw => {
+    chips.innerHTML = keywords.map(function(kw) {
       const count = kwSummary[kw];
-      return `<span class="chip ${count > 0 ? 'found' : 'notfound'}">${kw} — ${count > 0 ? count + ' page' + (count > 1 ? 's' : '') : 'not found'}</span>`;
+      return '<span class="chip ' + (count > 0 ? 'found' : 'notfound') + '">' + kw + ' — ' + (count > 0 ? count + ' page' + (count > 1 ? 's' : '') : 'not found') + '</span>';
     }).join('');
 
     if (!results.length) {
@@ -494,38 +487,36 @@ Return ONLY valid JSON array, no markdown, no explanation.`;
       return;
     }
 
-    list.innerHTML = results.map((r, i) => {
+    list.innerHTML = results.map(function(r, i) {
       const found = r.keywords_found || [];
       const notFound = r.keywords_not_found || [];
 
-      const badges = [
-        ...found.map(kf => `<span class="badge found">${kf.keyword} ×${kf.count}</span>`),
-        ...notFound.map(kw => `<span class="badge notfound">${kw}</span>`)
-      ].join('');
+      const badges = found.map(function(kf) {
+        return '<span class="badge found">' + kf.keyword + ' &times;' + kf.count + '</span>';
+      }).concat(notFound.map(function(kw) {
+        return '<span class="badge notfound">' + kw + '</span>';
+      })).join('');
 
-      const bodyContent = found.map(kf => `
-        <div class="kw-section">
-          <div class="kw-label">${kf.keyword}<span class="count-pill">${kf.count} occurrence${kf.count !== 1 ? 's' : ''}</span></div>
-          ${(kf.excerpts || []).map(ex => `<div class="excerpt">${highlight(ex, kf.keyword)}</div>`).join('')}
-        </div>
-      `).join('') + (notFound.length ? `
-        <div class="kw-section">
-          <div class="kw-label miss">Not found on this page</div>
-          <div style="font-size:0.85rem;color:#888;">${notFound.join(', ')}</div>
-        </div>` : '');
+      const foundHTML = found.map(function(kf) {
+        const excerpts = (kf.excerpts || []).map(function(ex) {
+          return '<div class="excerpt">' + highlight(ex, kf.keyword) + '</div>';
+        }).join('');
+        return '<div class="kw-section"><div class="kw-label">' + kf.keyword + '<span class="count-pill">' + kf.count + ' occurrence' + (kf.count !== 1 ? 's' : '') + '</span></div>' + excerpts + '</div>';
+      }).join('');
 
-      return `
-        <div class="result-item">
-          <div class="result-item-header" onclick="toggleBody(${i})">
-            <div class="result-page-info">
-              <div class="result-page-url">${r.url}</div>
-              <div class="result-page-title">${r.title || 'Untitled page'}</div>
-            </div>
-            <div class="result-badges">${badges}</div>
-            <div class="chevron" id="chev-${i}">▶</div>
-          </div>
-          <div class="result-body" id="body-${i}">${bodyContent}</div>
-        </div>`;
+      const missHTML = notFound.length ? '<div class="kw-section"><div class="kw-label miss">Not found on this page</div><div style="font-size:0.85rem;color:#888;">' + notFound.join(', ') + '</div></div>' : '';
+
+      return '<div class="result-item">' +
+        '<div class="result-item-header" onclick="toggleBody(' + i + ')">' +
+          '<div class="result-page-info">' +
+            '<div class="result-page-url">' + r.url + '</div>' +
+            '<div class="result-page-title">' + (r.title || 'Untitled page') + '</div>' +
+          '</div>' +
+          '<div class="result-badges">' + badges + '</div>' +
+          '<div class="chevron" id="chev-' + i + '">&#9654;</div>' +
+        '</div>' +
+        '<div class="result-body" id="body-' + i + '">' + foundHTML + missHTML + '</div>' +
+      '</div>';
     }).join('');
 
     card.classList.add('visible');
